@@ -17,17 +17,15 @@ class Distance(nn.Module):
         if comment_embedder is None:
             comment_embedder = Attention(vector_size)
         self.comment_embedder = comment_embedder
-        self.subreddit_to_query = nn.Linear(vector_size, vector_size)
         self.value_to_coords = nn.Linear(vector_size, 20)
         self.karma_time_decay1 = nn.Linear(5, 2)
         self.karma_time_decay2 = nn.Linear(2, 1)
     
     def forward(self, original_post, response_post):
-        subreddit = original_post['subreddit']
-        query = self.subreddit_to_query(subreddit)
+        query = original_post['subreddit']
         op_v, _ = self.comment_embedder(query, original_post['body'])
         rp_v, _ = self.comment_embedder(query, response_post['body'])
-        op_v, rp_v = self.value_to_coords(op_v), self.value_to_coords(rp_v)
+        op_v, rp_v = self.value_to_coords(torch.relu(op_v)), self.value_to_coords(torch.relu(rp_v))
         time_embedding = time_embedder(original_post['created_utc'], response_post['created_utc'])
         karma_drift = torch.relu(self.karma_time_decay1(time_embedding))
         karma_drift = torch.relu(self.karma_time_decay2(karma_drift))

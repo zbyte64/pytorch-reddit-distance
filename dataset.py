@@ -7,16 +7,24 @@ from torchnlp.utils import pad_tensor
 from bpemb import BPEmb
 import torch
 import random
+from torch import multiprocessing
+from tqdm import tqdm
+import numpy as np
+
+
+EMPTY_BODY_TOKENS = set(['[removed]', '[deleted]', ''])
 
 
 def comment_stream(filename):
+    '''
+    Read comment objects from a file in reverse, skipping over empty bodies
+    '''
     with FileReadBackwards(filename, encoding="utf-8") as frb:
         for l in frb:
             o = json.loads(l)
+            if o['body'].strip() in EMPTY_BODY_TOKENS:
+                continue
             yield o
-
-
-EMPTY_BODY_TOKENS = set(['[removed]', '[deleted]'])
 
 
 def comment_triplet_stream(filenames):
@@ -32,22 +40,19 @@ def comment_triplet_stream(filenames):
             body, parent_id, _id = comment['body'], comment['parent_id'], comment['id']
             link_id = 't1_' + _id
             responses = orphans.pop(link_id, None)
-            if body in EMPTY_BODY_TOKENS:
-                pass
-            else:
-                if responses:
-                    responses.sort(key=lambda c: c['score'], reverse=True)
-                    for p, n in zip(responses, responses[1:]):
-                        yield (comment, p, n)
-                    #select outside comment
-                    if len(orphans):
-                        ro = random.choice(list(orphans.keys()))
-                        rc = random.choice(orphans[ro])
-                        yield (comment, responses[-1], rc)
-                    #else:
-                    #    assert False
-                if parent_id.startswith('t1_') and comment['score'] > 0:
-                    orphans[parent_id].append(comment)
+            if responses:
+                responses.sort(key=lambda c: c['score'], reverse=True)
+                for p, n in zip(responses, responses[1:]):
+                    yield (comment, p, n)
+                #select outside comment
+                if len(orphans):
+                    ro = random.choice(list(orphans.keys()))
+                    rc = random.choice(orphans[ro])
+                    yield (comment, responses[-1], rc)
+                #else:
+                #    assert False
+            if parent_id.startswith('t1_') and comment['score'] > 0:
+                orphans[parent_id].append(comment)
 
 
 def collect_filenames(directory):
@@ -66,15 +71,18 @@ def conditional_pad_tensor(s, length):
     return pad_tensor(s, length)
 
 
-def transformer(sequence_length, vectorizer=None):
+def transformer(sequence_length, dtype=torch.float):
+    '''
+    Transforms a text sequence into an encoded sequence of vectors
+    '''
     assert sequence_length > 0
-    if vectorizer is None:
-        embedder = BPEmb(lang='en', vs=50000, dim=300)
-        embed = lambda s: torch.Tensor(embedder.embed(s))
-        if sequence_length == 1:
-            vectorizer = lambda sequence: torch.mean(embed(sequence), dim=0, keepdim=True)
-        else:
-            vectorizer = lambda sequence: conditional_pad_tensor(embed(sequence), sequence_length)
+    embedder = BPEmb(lang='en', vs=50000, dim=300)
+    cast = lambda v: torch.from_numpy(v).type(dtype)
+    embed = embedder.embed
+    if sequence_length == 1:
+        vectorizer = lambda sequence: cast(np.mean(embed(sequence), axis=0, keepdims=True))
+    else:
+        vectorizer = lambda sequence: conditional_pad_tensor(cast(embed(sequence)), sequence_length)
     return vectorizer
 
 
@@ -93,11 +101,11 @@ def randomize(iterable, bufsize=1000):
     while buf: yield buf.pop()
 
 
-def reddit_triplet_datasource(batch_size=100, heads=100):
+def reddit_triplet_datasource(batch_size=100, heads=100, data_dir=None):
     body_t = transformer(100)
-    subreddit_t = transformer(1)
+    subreddit_t = get_subreddit_embedding()
     time_t = lambda x: torch.tensor(int(x), dtype=torch.float)
-    filenames = collect_filenames(os.environ['DATA_DIR'])
+    filenames = collect_filenames(data_dir or os.environ['DATA_DIR'])
     assert filenames, 'No data found'
     def infinite_triplets(start_index=None):
         if start_index is None:
@@ -128,7 +136,57 @@ def reddit_triplet_datasource(batch_size=100, heads=100):
         if len(batch['op_body']) == batch_size:
             yield {k: torch.stack(v) for k, v in batch.items()}
             batch = defaultdict(list)
-    #yield batch
+
+
+def mean_vector_by(group_by='subreddit', data_dir=None, num_processes=4):
+    filenames = collect_filenames(data_dir or os.environ['DATA_DIR'])
+    #randomize processing for more uniform speed prediction
+    random.shuffle(filenames)
+    body_t = transformer(1, dtype=torch.float64)
+    groups = defaultdict(lambda: torch.zeros(1, 300, dtype=torch.float64))
+    sum_karma = defaultdict(lambda: 0)
+    work_pool = multiprocessing.Pool(processes=num_processes)
+    output = [work_pool.apply_async(_file_mean_vector_by, args=(group_by, f)) for f in filenames]
+    for result in tqdm(output):
+        o_groups, o_sum_karma = result.get()
+        for k in o_sum_karma.keys():
+            groups[k] += o_groups[k]
+            sum_karma[k] += o_sum_karma[k]
+    for k, karma in sum_karma.items():
+        v = groups[k] / karma
+        groups[k] = v.type(torch.float)
+    return groups
+
+
+def _file_mean_vector_by(group_by, filename):
+    body_t = transformer(1, dtype=torch.float64)
+    groups = defaultdict(lambda: torch.zeros(1, 300, dtype=torch.float64))
+    sum_karma = defaultdict(lambda: 0)
+    for obj in comment_stream(filename):
+        score = obj['score']
+        if score < 1:
+            continue
+        m = body_t(obj['body'])
+        #detect and skip nans
+        if torch.sum(m == m).item() == 0:
+            #print('bad body', obj)
+            continue
+        k = obj[group_by]
+        groups[k] += m*score
+        sum_karma[k] += score
+    #cast as plain dict because we cant pickle lambdas passed to defaultdict
+    return dict(groups), dict(sum_karma)
+
+
+def get_subreddit_embedding():
+    path = 'subreddit_embedding.pt'
+    if not os.path.exists(path):
+        print('generating subreddit embedding...')
+        subreddit_t = mean_vector_by('subreddit')
+        torch.save(subreddit_t, path)
+    else:
+        subreddit_t = torch.load(path)
+    return lambda x: subreddit_t[x]
 
 
 if __name__ == '__main__':
