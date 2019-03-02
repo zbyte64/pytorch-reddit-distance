@@ -1,3 +1,6 @@
 __pycache__
 .word_vectors_cache
 *~
+*.pt
+reddit_data
+*.py[cdo]

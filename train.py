@@ -1,6 +1,6 @@
 from dataset import *
 from model import Distance
-from torch import optim 
+from torch import optim
 import torch
 import os
 
@@ -8,7 +8,7 @@ import os
 def train():
     device = torch.device('cuda') if torch.cuda.is_available() else torch.device('cpu')
     model = Distance().to(device)
-    ds = reddit_triplet_datasource(100)
+    ds = reddit_triplet_datasource(os.environ.get('DATA_DIR', 'reddit_data'), 100)
     optimizer = optim.SGD(model.parameters(), lr=0.01)
     for i, batch in enumerate(ds):
         op = {

@@ -61,7 +61,7 @@ def collect_filenames(directory):
         for file in files:
             if '.' in file or file == 'README':
                 continue
-            filenames.append(os.path.join(directory, cur_path, file))
+            filenames.append(os.path.join(cur_path, file))
     return filenames
 
 
@@ -101,11 +101,11 @@ def randomize(iterable, bufsize=1000):
     while buf: yield buf.pop()
 
 
-def reddit_triplet_datasource(batch_size=100, heads=100, data_dir=None):
+def reddit_triplet_datasource(data_dir, batch_size=100, heads=100):
     body_t = transformer(100)
-    subreddit_t = get_subreddit_embedding()
+    subreddit_t = get_subreddit_embedding(data_dir)
     time_t = lambda x: torch.tensor(int(x), dtype=torch.float)
-    filenames = collect_filenames(data_dir or os.environ['DATA_DIR'])
+    filenames = collect_filenames(data_dir)
     assert filenames, 'No data found'
     def infinite_triplets(start_index=None):
         if start_index is None:
@@ -123,7 +123,7 @@ def reddit_triplet_datasource(batch_size=100, heads=100, data_dir=None):
         while True:
             for ds in read_heads:
                 yield next(ds)
-    
+
     batch = defaultdict(list)
     for op_d, p_d, n_d in randomize(next_entry()):
         batch['op_body'].append(body_t(op_d['body']))
@@ -138,8 +138,9 @@ def reddit_triplet_datasource(batch_size=100, heads=100, data_dir=None):
             batch = defaultdict(list)
 
 
-def mean_vector_by(group_by='subreddit', data_dir=None, num_processes=4):
-    filenames = collect_filenames(data_dir or os.environ['DATA_DIR'])
+def mean_vector_by(group_by, data_dir, num_processes=4):
+    multiprocessing.set_sharing_strategy('file_system')
+    filenames = collect_filenames(data_dir)
     #randomize processing for more uniform speed prediction
     random.shuffle(filenames)
     body_t = transformer(1, dtype=torch.float64)
@@ -152,10 +153,12 @@ def mean_vector_by(group_by='subreddit', data_dir=None, num_processes=4):
         for k in o_sum_karma.keys():
             groups[k] += o_groups[k]
             sum_karma[k] += o_sum_karma[k]
+    work_pool.close()
+    work_pool.join()
     for k, karma in sum_karma.items():
         v = groups[k] / karma
         groups[k] = v.type(torch.float)
-    return groups
+    return dict(groups)
 
 
 def _file_mean_vector_by(group_by, filename):
@@ -178,11 +181,11 @@ def _file_mean_vector_by(group_by, filename):
     return dict(groups), dict(sum_karma)
 
 
-def get_subreddit_embedding():
+def get_subreddit_embedding(data_dir):
     path = 'subreddit_embedding.pt'
     if not os.path.exists(path):
         print('generating subreddit embedding...')
-        subreddit_t = mean_vector_by('subreddit')
+        subreddit_t = mean_vector_by('subreddit', data_dir)
         torch.save(subreddit_t, path)
     else:
         subreddit_t = torch.load(path)
@@ -196,4 +199,3 @@ if __name__ == '__main__':
     print(filenames)
     for t in triple_stream(filenames):
         print(t)
-    

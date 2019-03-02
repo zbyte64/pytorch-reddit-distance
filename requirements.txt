@@ -1,3 +1,4 @@
 file_read_backwards
 bpemb
-torchnlp
+pytorch-nlp
+
