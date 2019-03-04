@@ -7,9 +7,14 @@ To train:
 DATA_DIR=reddit_data python train.py
 ```
 
-To run:
+To compare a given comment to a user's set of comments relative to a given subreddit:
 ```
 REDDIT_ID=yourappid
 REDDIT_SECRET=yourappsecret
-python bot.py ehew206 zbyte64
+python bot.py ehew206 zbyte64 eli5
+```
+
+To use the model as a knowledge base where you can query based on a given statement and subreddit:
+```
+python know.py "Why is the sky blue?" askscience
 ```

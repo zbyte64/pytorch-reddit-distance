@@ -12,8 +12,8 @@ def find_top_k(op, comments, k=1, subreddit='politics'):
     o_body = body_t(op.body).unsqueeze(0)
     c_body = torch.stack([body_t(c.body) for c in comments])
     print(c_body.shape, o_body.shape, query.shape)
-    o_v = model.encode_post(query, o_body).squeeze(0)
-    c_v = model.encode_post(query.repeat(len(comments), 1, 1), c_body)
+    o_v = model.project_post(query, o_body).squeeze(0)
+    c_v = model.project_post(query.repeat(len(comments), 1, 1), c_body)
     c_d = torch.sum((c_v - o_v) ** 2, dim=2).squeeze(1)
     print(c_d.shape, c_v.shape, o_v.shape)
     _, c_i = torch.topk(c_d, k, largest=False, sorted=True)
@@ -37,9 +37,8 @@ def suggest_responses(comment_id, redditor_name, k=5, subreddit='politics'):
 
 if __name__ == '__main__':
     import sys
-    comment_id, redditor_name = sys.argv[-2:]
-    best_responses = suggest_responses(comment_id, redditor_name)
+    comment_id, redditor_name, subreddit = sys.argv[-3:]
+    best_responses = suggest_responses(comment_id, redditor_name, subreddit)
     print('Preferred resonses:')
     for r in best_responses:
         print(r.body)
-    
