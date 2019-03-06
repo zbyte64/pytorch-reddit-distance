@@ -24,7 +24,7 @@ class Distance(nn.Module):
     
     def encode_post(self, query, body):
         v, _ = self.comment_embedder(query, body)
-        return self.value_to_coords(torch.relu(v))
+        return self.value_to_coords(v)
     
     def forward(self, original_post, response_post):
         query = original_post['subreddit']

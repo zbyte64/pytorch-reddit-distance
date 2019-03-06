@@ -9,7 +9,7 @@ def train():
     device = torch.device('cuda') if torch.cuda.is_available() else torch.device('cpu')
     model = Distance().to(device)
     ds = reddit_triplet_datasource(os.environ.get('DATA_DIR', 'reddit_data'), 100)
-    optimizer = optim.SGD(model.parameters(), lr=0.01)
+    optimizer = optim.Adam(model.parameters(), lr=0.001)
     for i, batch in enumerate(ds):
         op = {
             'body': batch['op_body'].to(device),
