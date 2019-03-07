@@ -10,6 +10,8 @@ import random
 from torch import multiprocessing
 from tqdm import tqdm
 import numpy as np
+import heapq
+import itertools
 
 
 EMPTY_BODY_TOKENS = set(['[removed]', '[deleted]', ''])
@@ -190,6 +192,24 @@ def get_subreddit_embedding(data_dir):
     else:
         subreddit_t = torch.load(path)
     return lambda x: subreddit_t[x]
+
+
+def collect_top_comments(k, data_dir, num_processes=4):
+    multiprocessing.set_sharing_strategy('file_system')
+    filenames = collect_filenames(data_dir)
+    work_pool = multiprocessing.Pool(processes=num_processes)
+    output = [work_pool.apply_async(_file_collect_top_comments, args=(k, f)) for f in filenames]
+    all_top_k = []
+    for result in tqdm(output):
+        all_top_k.append(result.get())
+    work_pool.close()
+    work_pool.join()
+    top_k = heapq.nlargest(k, itertools.chain(all_top_k), key=lambda x: x['score'])
+    return top_k
+
+
+def _file_collect_top_comments(k, filename):
+    return heapq.nlargest(k, comment_stream(filename), key=lambda x: x['score'])
 
 
 if __name__ == '__main__':
