@@ -7,9 +7,14 @@ To train:
 DATA_DIR=reddit_data python train.py
 ```
 
-To run:
+To query a comment against a user's comments:
 ```
 REDDIT_ID=yourappid
 REDDIT_SECRET=yourappsecret
-python bot.py ehew206 zbyte64
+python bot.py ehew206 zbyte64 askscience
+```
+
+To write a geospatial projection of a subreddit:
+```
+python know.py askscience
 ```

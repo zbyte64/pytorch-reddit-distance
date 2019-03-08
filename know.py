@@ -1,66 +1,69 @@
-from dataset import collect_top_comments, transformer, get_subreddit_embedding
+from collections import defaultdict
+from dataset import collect_filenames, transformer, get_subreddit_embedding, comment_stream
 import torch
 import os
+import geojson
 
 
-def get_knowledge_base(subreddit):
-    filename = 'know_%s.pt' % subreddit
-    if not os.path.exists(filename):
-        body_t = transformer(100)
-        subreddit_t = get_subreddit_embedding(os.environ.get('DATA_DIR', 'reddit_data'))
-        query = subreddit_t(subreddit).unsqueeze(0)
-        model = torch.load('model.pt').to('cpu')
-        top_c = collect_top_comments(10000, os.environ.get('DATA_DIR', 'reddit_data'))
-        kb = list()
-        for comment in top_c:
-            body_e = body_t(comment['body'])
-            c_e = model.encode_post(query, body_e)
-            #convert to lat lng
-            lat = torch.asin(c_e[:,2])
-            lng = torch.atan2(c_e[:,1], c_e[:,0])
-            #lng = torch.atan(c_e[:,1]/c_e[:,0])
-            kb.append((c_e, comment['body']))
-        torch.save(kb, filename)
-    else:
-        kb = torch.load(filename)
-    return kb
-
-
-def do_query(op, comments, k, subreddit):
-    subreddit_t = get_subreddit_embedding(os.environ.get('DATA_DIR', 'reddit_data'))
+def write_projections(subreddits, data_dir):
     body_t = transformer(100)
+    subreddit_t = get_subreddit_embedding(data_dir)
+    queries = [subreddit_t(s) for s in subreddits]
     model = torch.load('model.pt').to('cpu')
-    query = subreddit_t(subreddit).unsqueeze(0)
-    o_body = body_t(op.body).unsqueeze(0)
-    c_body = torch.stack([body_t(c.body) for c in comments])
-    print(c_body.shape, o_body.shape, query.shape)
-    o_v = model.encode_post(query, o_body).squeeze(0)
-    c_v = model.encode_post(query.repeat(len(comments), 1, 1), c_body)
-    c_d = torch.sum((c_v - o_v) ** 2, dim=2).squeeze(1)
-    print(c_d.shape, c_v.shape, o_v.shape)
-    _, c_i = torch.topk(c_d, k, largest=False, sorted=True)
-    return c_i
+    filenames = collect_filenames(data_dir)
+    # {subreddit: {int(lat, lng): (top_comment, lat_lng)}}
+    lat_lng_buckets = defaultdict(dict)
+    batch_size = 100
+    batch = list()
+    batch_bodies = list()
+    batch_queries = list()
+    batch_subreddits = list()
+    def process_batch():
+        q = torch.stack(batch_queries)
+        b = torch.stack(batch_bodies)
+        c_e = model.encode_post(q, b)
+        lat = torch.asin(c_e[:,2]).flatten().tolist()
+        lng = torch.atan2(c_e[:,1], c_e[:,0]).flatten().tolist()
+        bucket_keys = zip(map(int, lat), map(int, lng))
+        for subreddit, comment, key, lat_lng in zip(batch_subreddits, batch, bucket_keys, zip(lat, lng)):
+            bucket = lat_lng_buckets[subreddit]
+            if key in bucket and bucket[key][0]['score'] >= comment['score']:
+                pass
+            else:
+                bucket[key] = (comment, lat_lng)
+        batch.clear()
+        batch_bodies.clear()
+        batch_queries.clear()
+        batch_subreddits.clear()
 
-
-def suggest_responses(comment_id, redditor_name, k=5, subreddit='politics'):
-    reddit = praw.Reddit(client_id=os.environ['REDDIT_ID'],
-                         client_secret=os.environ['REDDIT_SECRET'],
-                         user_agent='reddit distance bot')
-    op = reddit.comment(comment_id)
-    assert op.body
-    redditor = reddit.redditor(redditor_name)
-    comments = list(redditor.comments.top())
-    assert comments
-    top_i = find_top_k(op, comments, k=k, subreddit=subreddit)
-    print(top_i.shape)
-    top_r = [comments[i] for i in top_i.flatten().tolist()]
-    return top_r
+    for filename in filenames:
+        comments = comment_stream(filename)
+        for comment in comments:
+            if comment['score'] < 10:
+                continue
+            body = body_t(comment['body'])
+            for subreddit, q in zip(subreddits, queries):
+                batch.append(comment)
+                batch_bodies.append(body)
+                batch_queries.append(q)
+                batch_subreddits.append(subreddit)
+                if len(batch) == batch_size:
+                    process_batch()
+    if len(batch):
+        process_batch()
+    for subreddit, top_world in lat_lng_buckets.items():
+        geos = list()
+        for comment, (lat, lng) in top_world.values():
+            geos.append(geojson.Point((lat, lng), **comment))
+        geos = geojson.GeometryCollection(geos)
+        outfile = open(os.path.join(data_dir, '%s.geojson' % subreddit), 'w')
+        geojson.dump(geos, outfile)
+        outfile.close()
 
 
 if __name__ == '__main__':
     import sys
-    comment_id, redditor_name, subreddit = sys.argv[-3:]
-    best_responses = suggest_responses(comment_id, redditor_name, subreddit)
-    print('Preferred resonses:')
-    for r in best_responses:
-        print(r.body)
+    subreddits = sys.argv[1:]
+    data_dir = os.environ.get('DATA_DIR', 'reddit_data')
+    print('Writing projections for:', subreddits)
+    write_projections(subreddits, data_dir)

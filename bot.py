@@ -37,9 +37,8 @@ def suggest_responses(comment_id, redditor_name, k=5, subreddit='politics'):
 
 if __name__ == '__main__':
     import sys
-    comment_id, redditor_name = sys.argv[-2:]
-    best_responses = suggest_responses(comment_id, redditor_name)
+    comment_id, redditor_name, subreddit = sys.argv[-3:]
+    best_responses = suggest_responses(comment_id, redditor_name, subreddit)
     print('Preferred resonses:')
     for r in best_responses:
         print(r.body)
-    
