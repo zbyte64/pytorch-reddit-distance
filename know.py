@@ -54,8 +54,10 @@ def write_projections(subreddits, data_dir):
     for subreddit, top_world in lat_lng_buckets.items():
         geos = list()
         for comment, (lat, lng) in top_world.values():
-            geos.append(geojson.Point((lat, lng), **comment))
-        geos = geojson.GeometryCollection(geos)
+            geos.append(geojson.Feature(
+                geometry=geojson.Point((lat, lng)),
+                properties=comment))
+        geos = geojson.FeatureCollection(geos)
         outfile = open(os.path.join(data_dir, '%s.geojson' % subreddit), 'w')
         geojson.dump(geos, outfile)
         outfile.close()
