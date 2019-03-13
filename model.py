@@ -9,13 +9,19 @@ circle_embedder = lambda x, max_x: [torch.cos(2*math.pi*x/max_x), torch.sin(2*ma
 dow_embedder = lambda x: circle_embedder(x, 60 * 60 * 24 * 7)
 hour_embedder = lambda x: circle_embedder(x, 60 * 60 * 24)
 month_embedder = lambda x: circle_embedder(x, 60 * 60 * 24 * 30)
-time_embedder = lambda t0, t1: torch.stack([*dow_embedder(t0), *hour_embedder(t0), *month_embedder(t1-t0)], dim=1)
+time_embedder = lambda t0, t1: torch.stack([*dow_embedder(t0), *hour_embedder(t0), torch.log(torch.relu(t1-t0)+1)], dim=1)
 
 
 def great_circle_distance(p1, p2):
-    v = torch.bmm(p1.view(p1.shape[0], 1, 3), p2.view(p2.shape[0], 3, 1))
-    v = v.clamp(max=1, min=-1)
-    return torch.acos(v)
+    #dot_product = torch.bmm(p1.view(p1.shape[0], 1, 3), p2.view(p2.shape[0], 3, 1))
+    #dot_product = torch.sum(dot_product, dim=1, keepdim=True)
+    #v = v.clamp(max=1, min=-1)
+    dot_product = torch.einsum('bi,bj->b', p1, p2).unsqueeze(1)
+    x = p1[:,1]*p2[:,2] - p1[:,2]*p2[:,1]
+    y = p1[:,2]*p2[:,0] - p1[:,0]*p2[:,2]
+    z = p1[:,0]*p2[:,1] - p1[:,1]*p2[:,0]
+    cross_product = x+y+z
+    return torch.atan2(cross_product.unsqueeze(1), dot_product)
     
 
 class Distance(nn.Module):
@@ -25,7 +31,7 @@ class Distance(nn.Module):
             comment_embedder = Attention(vector_size)
         self.comment_embedder = comment_embedder
         self.value_to_coords = nn.Linear(vector_size, 3)
-        self.karma_time_decay1 = nn.Linear(6, 2)
+        self.karma_time_decay1 = nn.Linear(5, 2)
         self.karma_time_decay2 = nn.Linear(2, 1)
     
     def encode_post(self, query, body):

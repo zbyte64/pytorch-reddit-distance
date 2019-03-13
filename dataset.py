@@ -43,6 +43,7 @@ def comment_triplet_stream(filenames):
             link_id = 't1_' + _id
             responses = orphans.pop(link_id, None)
             if responses:
+                comment['n_children'] = len(responses)
                 responses.sort(key=lambda c: c['score'], reverse=True)
                 for p, n in zip(responses, responses[1:]):
                     yield (comment, p, n)
@@ -103,7 +104,7 @@ def randomize(iterable, bufsize=1000):
     while buf: yield buf.pop()
 
 
-def reddit_triplet_datasource(data_dir, batch_size=100, heads=100):
+def reddit_triplet_datasource(data_dir, batch_size=100, heads=100, sigma=1e-1):
     body_t = transformer(100)
     subreddit_t = get_subreddit_embedding(data_dir)
     time_t = lambda x: torch.tensor(int(x), dtype=torch.float)
@@ -135,6 +136,11 @@ def reddit_triplet_datasource(data_dir, batch_size=100, heads=100):
         batch['p_created_utc'].append(time_t(p_d['created_utc']))
         batch['n_body'].append(body_t(n_d['body']))
         batch['n_created_utc'].append(time_t(n_d['created_utc']))
+        if 't1_' + op_d['id'] == n_d['parent_id']:
+            batch['sigma'].append(torch.tensor(sigma/op_d['n_children']))
+        else:
+            #topic_drift = (subreddit_t(op_d['subreddit']) - subreddit_t(n_d['subreddit']))**2
+            batch['sigma'].append(torch.tensor(sigma))
         if len(batch['op_body']) == batch_size:
             yield {k: torch.stack(v) for k, v in batch.items()}
             batch = defaultdict(list)
