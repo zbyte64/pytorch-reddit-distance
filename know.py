@@ -71,9 +71,8 @@ def write_projections(subreddits, data_dir, num_processes=4):
         for subreddit, top_world in top_month.items():
             s_bucket = lat_lng_buckets[subreddit]
             for p, (k, c) in top_world.items():
-                if p in s_bucket:
-                    if s_bucket[p][1]['score'] < c['score']:
-                        s_bucket[p] = (k,c)
+                if p in s_bucket and s_bucket[p][1]['score'] > c['score']:
+                    pass
                 else:
                     s_bucket[p] = (k,c)
             #lat_lng_buckets[subreddit].update({k:c for k, c in top_world.values()})

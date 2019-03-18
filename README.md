@@ -18,3 +18,9 @@ To write a geospatial projection of a subreddit:
 ```
 python know.py askscience
 ```
+
+
+Credits:
+
+- Attention Layer: pytorch-nlp
+- optimizer & scheduler: https://github.com/mpyrozhok/adamwr

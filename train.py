@@ -3,13 +3,23 @@ from model import Distance
 from torch import optim
 import torch
 import os
+from adamw import AdamW
+from cyclic_scheduler import CyclicLRWithRestarts
 
 
-def train():
+def train(batch_size=100):
     device = torch.device('cuda') if torch.cuda.is_available() else torch.device('cpu')
-    model = Distance().to(device)
-    ds = reddit_triplet_datasource(os.environ.get('DATA_DIR', 'reddit_data'), 100, sigma=1.)
-    optimizer = optim.Adam(model.parameters(), lr=0.001)
+    if os.path.exists('model.pt'):
+        model = torch.load('model.pt')
+    else:
+        model = Distance()
+    model = model.to(device).train()
+    ds = reddit_triplet_datasource(os.environ.get('DATA_DIR', 'reddit_data'), batch_size, sigma=1.5)
+    epoch_size = int(1e5)
+    #optimizer = optim.Adam(model.parameters(), lr=3e-4)
+    optimizer = AdamW(model.parameters(), lr=3e-4, weight_decay=1e-5)
+    scheduler = CyclicLRWithRestarts(optimizer, batch_size, epoch_size, restart_period=5, t_mult=1.2, policy="cosine")
+    scheduler.step()
     for i, batch in enumerate(ds):
         op = {
             'body': batch['op_body'].to(device),
@@ -30,7 +40,12 @@ def train():
         sigma = batch['sigma'].to(device)
         loss = torch.mean(torch.relu(d_t - d_f + sigma))
         loss.backward()
+        #torch.nn.utils.clip_grad_norm_(model.comment_embedder.parameters(), 1)
         optimizer.step()
+        try:
+            scheduler.batch_step()
+        except StopIteration:
+            scheduler.step()
         if not i % 10:
             print('Loss:', loss.detach().item())
         if not i % 100 and i:

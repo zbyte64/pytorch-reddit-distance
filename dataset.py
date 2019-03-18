@@ -38,6 +38,7 @@ def comment_triplet_stream(filenames):
     '''
     orphans = defaultdict(list) #parent_id => list
     for filename in filenames:
+        last_gen_parents = set(orphans.keys())
         for comment in comment_stream(filename):
             body, parent_id, _id = comment['body'], comment['parent_id'], comment['id']
             link_id = 't1_' + _id
@@ -46,9 +47,16 @@ def comment_triplet_stream(filenames):
                 comment['n_children'] = len(responses)
                 responses.sort(key=lambda c: c['score'], reverse=True)
                 for p, n in zip(responses, responses[1:]):
-                    yield (comment, p, n)
+                    if random.randint(0, 1):
+                        yield (comment, p, n)
+                    elif len(orphans):
+                        ro = random.choice(list(orphans.keys()))
+                        rc = random.choice(orphans[ro])
+                        yield (comment, responses[-1], rc)
+                    else:
+                        yield (comment, p, n)
                 #select outside comment
-                if len(orphans):
+                if len(orphans) and len(responses) == 1:
                     ro = random.choice(list(orphans.keys()))
                     rc = random.choice(orphans[ro])
                     yield (comment, responses[-1], rc)
@@ -56,6 +64,8 @@ def comment_triplet_stream(filenames):
                 #    assert False
             if parent_id.startswith('t1_') and comment['score'] > 0:
                 orphans[parent_id].append(comment)
+        for p in last_gen_parents:
+            orphans.pop(p, None)
 
 
 def collect_filenames(directory):
