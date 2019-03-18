@@ -3,6 +3,7 @@ from model import Distance
 from torch import optim
 import torch
 import os
+import math
 from adamw import AdamW
 from cyclic_scheduler import CyclicLRWithRestarts
 
@@ -14,7 +15,7 @@ def train(batch_size=100):
     else:
         model = Distance()
     model = model.to(device).train()
-    ds = reddit_triplet_datasource(os.environ.get('DATA_DIR', 'reddit_data'), batch_size, sigma=1.5)
+    ds = reddit_triplet_datasource(os.environ.get('DATA_DIR', 'reddit_data'), batch_size, sigma=math.pi/2)
     epoch_size = int(1e5)
     #optimizer = optim.Adam(model.parameters(), lr=3e-4)
     optimizer = AdamW(model.parameters(), lr=3e-4, weight_decay=1e-5)

@@ -37,6 +37,7 @@ def comment_triplet_stream(filenames):
         Negative: a response with lesser karma or outside sample
     '''
     orphans = defaultdict(list) #parent_id => list
+    sample_q = list()
     for filename in filenames:
         last_gen_parents = set(orphans.keys())
         for comment in comment_stream(filename):
@@ -46,24 +47,27 @@ def comment_triplet_stream(filenames):
             if responses:
                 comment['n_children'] = len(responses)
                 responses.sort(key=lambda c: c['score'], reverse=True)
+                for i, r in enumerate(responses):
+                    r['child_index'] = i
                 for p, n in zip(responses, responses[1:]):
                     if random.randint(0, 1):
                         yield (comment, p, n)
-                    elif len(orphans):
-                        ro = random.choice(list(orphans.keys()))
-                        rc = random.choice(orphans[ro])
+                    elif len(sample_q):
+                        rc = random.choice(sample_q)
                         yield (comment, responses[-1], rc)
                     else:
                         yield (comment, p, n)
                 #select outside comment
-                if len(orphans) and len(responses) == 1:
-                    ro = random.choice(list(orphans.keys()))
-                    rc = random.choice(orphans[ro])
+                if len(sample_q) and len(responses) == 1:
+                    rc = random.choice(sample_q)
                     yield (comment, responses[-1], rc)
                 #else:
                 #    assert False
             if parent_id.startswith('t1_') and comment['score'] > 0:
                 orphans[parent_id].append(comment)
+            sample_q.append(comment)
+            if len(sample_q) > 1000:
+                sample_q.pop(0)
         for p in last_gen_parents:
             orphans.pop(p, None)
 
@@ -149,8 +153,10 @@ def reddit_triplet_datasource(data_dir, batch_size=100, heads=100, sigma=1e-1):
         if 't1_' + op_d['id'] == n_d['parent_id']:
             batch['sigma'].append(torch.tensor(sigma/op_d['n_children']))
         else:
-            #topic_drift = (subreddit_t(op_d['subreddit']) - subreddit_t(n_d['subreddit']))**2
-            batch['sigma'].append(torch.tensor(sigma))
+            topic_drift = (subreddit_t(op_d['subreddit']) - subreddit_t(n_d['subreddit']))**2 / (300*2*2 / sigma)
+            topic_drift = topic_drift.sum().clamp(0, sigma)
+            sibling_sigma = sigma * (1 - (1 + p_d['child_index']) / op_d['n_children'])
+            batch['sigma'].append(topic_drift + sibling_sigma)
         if len(batch['op_body']) == batch_size:
             yield {k: torch.stack(v) for k, v in batch.items()}
             batch = defaultdict(list)
