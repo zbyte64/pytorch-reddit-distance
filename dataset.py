@@ -6,6 +6,7 @@ from torchnlp.word_to_vector import FastText
 from torchnlp.utils import pad_tensor
 from bpemb import BPEmb
 import torch
+import torch.nn.functional as F
 import random
 from torch import multiprocessing
 from tqdm import tqdm
@@ -65,9 +66,10 @@ def comment_triplet_stream(filenames):
                 #    assert False
             if parent_id.startswith('t1_') and comment['score'] > 0:
                 orphans[parent_id].append(comment)
-            sample_q.append(comment)
-            if len(sample_q) > 1000:
-                sample_q.pop(0)
+                if len(sample_q) == 1000:
+                    sample_q[random.randint(0, 1000-1)] = comment
+                else:
+                    sample_q.append(comment)
         for p in last_gen_parents:
             orphans.pop(p, None)
 
@@ -151,10 +153,13 @@ def reddit_triplet_datasource(data_dir, batch_size=100, heads=100, sigma=1e-1):
         batch['n_body'].append(body_t(n_d['body']))
         batch['n_created_utc'].append(time_t(n_d['created_utc']))
         if 't1_' + op_d['id'] == n_d['parent_id']:
-            batch['sigma'].append(torch.tensor(sigma/op_d['n_children']))
+            assert n_d['parent_id'] == p_d['parent_id']
+            sibling_sigma = sigma * (n_d['child_index'] - p_d['child_index']) / op_d['n_children']
+            batch['sigma'].append(torch.tensor(sibling_sigma))
         else:
-            topic_drift = (subreddit_t(op_d['subreddit']) - subreddit_t(n_d['subreddit']))**2 / (300*2*2 / sigma)
-            topic_drift = topic_drift.sum().clamp(0, sigma)
+            #topic_drift = (subreddit_t(op_d['subreddit']) - subreddit_t(n_d['subreddit']))**2 / (300*2*2 / sigma)
+            topic_drift = F.cosine_similarity(subreddit_t(op_d['subreddit']), subreddit_t(n_d['subreddit']), dim=0, eps=1e-6)
+            topic_drift = (topic_drift.mean() * sigma).clamp(0, sigma)
             sibling_sigma = sigma * (1 - (1 + p_d['child_index']) / op_d['n_children'])
             batch['sigma'].append(topic_drift + sibling_sigma)
         if len(batch['op_body']) == batch_size:

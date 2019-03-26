@@ -23,8 +23,8 @@ def get_projections_from_file(subreddits, data_dir, filename, batch_size=100):
         q = torch.stack(batch_queries)
         b = torch.stack(batch_bodies)
         c_e = model.encode_post(q, b)
-        lat = torch.atan2(c_e[:,2], (c_e[:,1]**2 + c_e[:,0]**2)**.5) / math.pi * 180
-        lng = torch.atan2(c_e[:,1], c_e[:,0]) / math.pi * 180
+        lat = torch.atan2(c_e[:,2], (c_e[:,1]**2 + c_e[:,0]**2)**.5) / math.pi * 2 * 90
+        lng = torch.atan2(c_e[:,1], c_e[:,0]) / math.pi * 2 * 180
         lat = lat.flatten().tolist()
         lng = lng.flatten().tolist()
         bucket_keys = zip(map(int, lat), map(int, lng))
@@ -82,6 +82,10 @@ def write_projections(subreddits, data_dir, num_processes=4):
     for subreddit, top_world in lat_lng_buckets.items():
         geos = list()
         for (lat, lng), comment  in top_world.values(): #top_world.items():
+            if lat > 90:
+                lat -= 180
+            if lng > 180:
+                lng -= 360
             geos.append(geojson.Feature(
                 geometry=geojson.Point((lng, lat)),
                 properties=comment))

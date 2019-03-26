@@ -16,7 +16,7 @@ def train(batch_size=100):
         model = Distance()
     model = model.to(device).train()
     ds = reddit_triplet_datasource(os.environ.get('DATA_DIR', 'reddit_data'), batch_size, sigma=math.pi/2)
-    epoch_size = int(1e5)
+    epoch_size = int(1e6)
     #optimizer = optim.Adam(model.parameters(), lr=3e-4)
     optimizer = AdamW(model.parameters(), lr=3e-4, weight_decay=1e-5)
     scheduler = CyclicLRWithRestarts(optimizer, batch_size, epoch_size, restart_period=5, t_mult=1.2, policy="cosine")
@@ -54,4 +54,4 @@ def train(batch_size=100):
 
 
 if __name__ == '__main__':
-    train()
+    train(85)
