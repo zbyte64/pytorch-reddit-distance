@@ -4,8 +4,7 @@ from torch import optim
 import torch
 import os
 import math
-from adamw import AdamW
-from cyclic_scheduler import CyclicLRWithRestarts
+from submodules import OpenAIAdam
 
 
 def train(batch_size=100):
@@ -18,9 +17,7 @@ def train(batch_size=100):
     ds = reddit_triplet_datasource(os.environ.get('DATA_DIR', 'reddit_data'), batch_size, sigma=math.pi/2)
     epoch_size = int(1e6)
     #optimizer = optim.Adam(model.parameters(), lr=3e-4)
-    optimizer = AdamW(model.parameters(), lr=3e-4, weight_decay=1e-5)
-    scheduler = CyclicLRWithRestarts(optimizer, batch_size, epoch_size, restart_period=5, t_mult=1.2, policy="cosine")
-    scheduler.step()
+    optimizer = OpenAIAdam(model.parameters(), t_total=epoch_size, lr=3e-4, weight_decay=1e-5, schedule='warmup_cosine')
     for i, batch in enumerate(ds):
         op = {
             'body': batch['op_body'].to(device),
@@ -43,10 +40,6 @@ def train(batch_size=100):
         loss.backward()
         #torch.nn.utils.clip_grad_norm_(model.comment_embedder.parameters(), 1)
         optimizer.step()
-        try:
-            scheduler.batch_step()
-        except StopIteration:
-            scheduler.step()
         if not i % 10:
             print('Loss:', loss.detach().item())
         if not i % 100 and i:
@@ -54,4 +47,4 @@ def train(batch_size=100):
 
 
 if __name__ == '__main__':
-    train(85)
+    train(20)

@@ -23,7 +23,7 @@ def great_circle_distance(p1, p2):
 
 
 class Distance(nn.Module):
-    def __init__(self, comment_embedder=None, vector_size=300):
+    def __init__(self, comment_embedder=None, vector_size=768):
         super(Distance, self).__init__()
         if comment_embedder is None:
             comment_embedder = Attention(vector_size)
